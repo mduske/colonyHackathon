@@ -12,6 +12,24 @@ const { app, BrowserWindow, Menu, ipcMain } = electron;
 
 const colonyClient = require("./colonyClient");
 
+//Local data Storage
+const Store = require('./store.js');
+
+/**
+ * Connector to interact with the colony curently open
+ */
+let currentColonyConnector;
+
+//Initialize Storage
+// First instantiate the class
+const dataStore = new Store({
+    // We'll call our data file 'user-preferences'
+    configName: 'ddsc-user-preferences',
+    defaults: { //Predefined data
+        "recentColony": {}
+    }
+});
+
 //Global variables
 let mainWindow;
 let researchWindow; //Currently Open Research Window
@@ -23,6 +41,8 @@ let accountSelectCallback;
 
 let colonySelectWindow; //Currently open Colony Selection Window
 let colonySelectCallback;
+
+let createColonyWindow;
 
 //Already loaded colony information
 let existingColonies = [];
@@ -162,16 +182,95 @@ function openTaskWindow(_taskId) {
     }
 }
 
+function openCreateColonyWindow() {
+    //Close currently open Research, if any is open
+    if (createColonyWindow != null) {
+        createColonyWindow.close();
+        createColonyWindow = null;
+    }
+
+    createColonyWindow = new BrowserWindow({
+        "parent": mainWindow,
+        "height": 475,
+        "width": 600,
+        resizable: false,
+        modal: true,
+        show: true,
+        autoHideMenuBar: true
+    });
+
+    createColonyWindow.loadURL(
+        url.format(
+            {
+                pathname: path.join(__dirname, "createColonyWindow.html"),
+                protocol: "file",
+                slashes: true
+            }
+        )
+    );
+
+    //Close App when Main Window Closes
+    createColonyWindow.on("close", function () {
+        createColonyWindow = null;
+    });
+}
+
 /**
  * Create a brand new colony
  */
-function createColony() {
-    let clientCreation = colonyClient.createColony(0, "Super Colony", "SupCNLY");
-    clientCreation.then(function () {
+function createColony(_colonyTokenSymbol, _colonyTokenName) {
+    const accountNumber = currentAccount.number;
+
+    if (_colonyTokenSymbol == null || _colonyTokenSymbol === "") {
+        //Show window for inputs
+        openCreateColonyWindow();
+        
+        return;
+    }
+
+    mainWindow.webContents.send("colony:close");
+    mainWindow.webContents.send("toast:show", "Creating new Colony " + _colonyTokenName + " , this can take up to a minute!", { displayLength: 30000 });
+
+    let clientCreation = colonyClient.createColony(accountNumber, _colonyTokenName, _colonyTokenSymbol);
+    clientCreation.then(function (colonyConnector) {
         console.log("Colony CREATED!");
+        colonyConnectorClient = colonyConnector["colonyClient"];
+        colonyData = colonyConnector["colonyData"];
+
+        //Set current colony connector
+        currentColonyConnector = colonyConnectorClient;
+
+        existingColonies.push(colonyData);
+
+        //Store Colony Information in "recentColony"
+        storeRecentColony(colonyData.id, colonyData);
+
+        //Update information on screen
+        mainWindow.webContents.send("colony:change", colonyData);
     }, function (reason) {
         console.log("Colony Error! " + reason);
     }).catch(err => console.error(err));
+}
+
+/**
+ * Store information on a recently openned Colony
+ * @param {*} _colonyId 
+ * @param {*} _colonyData 
+ */
+function storeRecentColony(_colonyId, _colonyData) {
+    //Store Colony Information in "recentColony"
+    console.log("Storing Recent Colony: " + _colonyId + " / " + _colonyData);
+    try {
+        let recentColony = dataStore.get("recentColony");
+        if (recentColony == null) {
+            recentColony = {};
+        }
+        recentColony[_colonyId] = _colonyData;
+
+        dataStore.set("recentColony", recentColony);
+    } catch (e) {
+        console.error(e);
+    }
 }
 
 /**
@@ -191,15 +290,24 @@ openColony = async function (_colonyId, _colonyAddress) {
         console.log("Open Colony " + _colonyId + " using Account: " + accountNumber);
         console.log("existingColonies.length " + existingColonies.length);
         let colonyData;
-        for (var colony in existingColonies) {
-            console.log(colony);
-            console.log(existingColonies[colony]);
-            if (existingColonies[colony].id == _colonyId) {
-                colonyData = existingColonies[colony];
-                break;
-            }
-        }
-        console.log(JSON.stringify(colonyData));
+
+        mainWindow.webContents.send("colony:close");
+        mainWindow.webContents.send("toast:show", "Openning Colony " + _colonyId + " / " + _colonyAddress + ", this can take up to a minute!", { displayLength: 10000 });
+
+        //Generate new Connector
+        let openColonyClient = await colonyClient.openColony(accountNumber, _colonyId, _colonyAddress);
+        console.log("Colony OPEN! " + _colonyId);
+        colonyConnectorClient = openColonyClient["colonyClient"];
+        colonyData = openColonyClient["colonyData"];
+
+        console.log("colonyData " + colonyData);
+
+        //Set current colony connector
+        currentColonyConnector = colonyConnectorClient;
+
+        //Store Colony Information in "recentColony"
+        storeRecentColony(colonyData.id, colonyData);
+
         mainWindow.webContents.send("colony:change", colonyData);
     } else {
         //Show Colony Selection window
@@ -209,19 +317,6 @@ openColony = async function (_colonyId, _colonyAddress) {
             console.error(e);
         }
     }
-
-    //Open existing Colony under selected user
-    //let listColony = colonyClient.listColonies(accountNumber);
-
-    /*
-    listColony.then(function (_colonyList) {
-        console.log("Colony LISTED! " + _colonyList);
-
-
-    }, function (reason) {
-        console.log("Colony Error! " + reason);
-    }).catch(err => console.error(err));
-    */
 }
 
 /**
@@ -233,6 +328,9 @@ selectAccount = async function (_callBack, _toastMessage) {
         accountSelectWindow = null;
         accountSelectCallback = null;
     }
+
+    mainWindow.webContents.send("colony:close");
+
     //Show window to select Account
     accountSelectWindow = new BrowserWindow({
         "parent": mainWindow,
@@ -289,6 +387,11 @@ selecColony = async function (_callBack) {
         } catch (e) { }
     }
 
+    if (existingColonies.length == 0) {
+        //Warn of slowness in processing all this data
+        mainWindow.webContents.send("toast:show", "This operation can take a up to few minutes the first time, please be patient!", { displayLength: 60000 });
+    }
+
     //Retrieve existing accounts
     const colonyList = (existingColonies.length == 0) ? await colonyClient.listColonies(accountNumber) : existingColonies;
     existingColonies = colonyList;
@@ -333,6 +436,38 @@ selecColony = async function (_callBack) {
 }
 
 //Menu Definition
+let menuRecentColonies = [];
+try {
+    let recentColony = dataStore.get("recentColony");
+    if (recentColony != null) {
+        console.log("Loading Recent Colonies");
+
+        for (colonyId in recentColony) {
+            const colonyData = recentColony[colonyId];
+
+            console.log(colonyId + " : " + colonyData);
+
+            const labelValue = colonyData.id + " / " + colonyData.token.symbol + " / " + colonyData.token.name;
+            const id = colonyData.id;
+            const address = colonyData.address;
+
+            menuRecentColonies.push({
+                label: labelValue,
+                click() {
+                    console.log(id, address);
+                    openColony(id, address).then(function () {
+                        console.error("Recent Colony Open: " + id);
+                    }, function (reason) {
+                        console.error("Error opening Recent Colony: " + reason);
+                    }).catch(err => console.error(err));
+                }
+            });
+        }
+    }
+} catch (e) {
+    console.error(e);
+}
+
 const mainWindowMenu = [
     {
         label: "Colony",
@@ -350,10 +485,11 @@ const mainWindowMenu = [
                 }
             },
             {
-                label: "Open Recent..."
+                label: "Open Recent...",
+                submenu: menuRecentColonies
             },
             {
-                label: "Change Colony",
+                label: "Change Account",
                 click() {
                     selectAccount(setCurrentAccount);
                 }
@@ -434,3 +570,14 @@ ipcMain.on("colony:selected", function (e, _colonyId, _colonyAddress) {
         colonySelectCallback(_colonyId, _colonyAddress);
     }
 });
+
+ipcMain.on("colony:create", function (e, _tokenSymbol, _tokenName) {
+    console.log("DDS Colony Create " + _tokenSymbol + " / " + _tokenName);
+
+    createColony(_tokenSymbol, _tokenName);
+});
+
+//Export functions that can be used from pages directly
+module.exports = {
+    createColony
+}

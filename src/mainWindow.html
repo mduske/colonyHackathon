@@ -203,9 +203,11 @@
     <!--JavaScript at end of body for optimized loading-->
     <script type="text/javascript" src="lib/materialize/js/materialize.js"></script>
 
+    <script type="text/javascript" src="./genericCode.js"></script>
+
     <script type="text/javascript">
-        const electron = require("electron");
-        const { ipcRenderer } = electron;
+        //const electron = require("electron");
+        //const { ipcRenderer } = electron;
 
         //Auto init all MaterializeCSS components
         M.AutoInit();
@@ -219,6 +221,32 @@
             aCurrentAccount.innerHTML = _accountNumber + " / " + _accountAddress;
 
             M.toast({html: "Account set to " + _accountAddress});
+        });
+
+        //Close currently open Colony
+        ipcRenderer.on("colony:close", function (e, _colonyData) {
+            //Clear Text Fields
+            const aTokenName = document.querySelector("a#tokenName");
+            const aTokenSymbol = document.querySelector("a#tokenSymbol");
+            const aColonyId = document.querySelector("a#colonyId");
+            const aColonyAddress = document.querySelector("a#colonyAddress");
+            
+            aTokenName.innerHTML = "Loading...";
+            aTokenSymbol.innerHTML = "Loading...";
+            aColonyId.innerHTML = "Loading...";
+            aColonyAddress.innerHTML = "Loading...";
+
+            //Remove Research
+            const tblTokenName = document.querySelector("#tblResearch");
+            while(tblTokenName.rows.length>1) {
+                tblTokenName.deleteRow(1);
+            }
+
+            //Remove Funding
+            const tblFunding = document.querySelector("#tblFunding");
+            while(tblFunding.rows.length>1) {
+                tblFunding.deleteRow(1);
+            }
         });
 
         ipcRenderer.on("colony:change", function (e, _colonyData) {
@@ -239,7 +267,6 @@
             aTokenSymbol.innerHTML = _colonyData.token.symbol;
             aColonyId.innerHTML = _colonyData.id;
             aColonyAddress.innerHTML = _colonyData.address;
-            
 
             M.toast({html: "Colony set to " + _colonyData.id + "/" + _colonyData.address});
         });
