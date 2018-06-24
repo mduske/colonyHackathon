@@ -95,6 +95,23 @@ main {
 }
 /* Task Window - END */
 
+/* Create New Colony - END */
+.colonyTextCard {
+    height: 400px;
+    min-width: 100vw;
+    max-width: 100vw;
+    overflow: auto;
+}
+
+.colonyButtonCard {
+    height: 200px;
+    min-width: 100vw;
+    max-width: 100vw;
+    overflow: hidden;
+}
+/* Create New Colony Window - END */
+
+
 .minimumPadding {
     padding-top: 5px;
     padding-bottom: 1px;
