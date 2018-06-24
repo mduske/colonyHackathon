@@ -41,4 +41,5 @@ If you do not create or open a Colony after selecting the user, then you are nav
 4. Recently opened Colonies are stored offline and are persistent accross reboots (but remember that ganash will not persist contract if restarted)
 
 
-**Incomplete (Mockup only): **
+**Incomplete (Mockup only):**
+1. Research Projects and Tasks could not be finished in time for the final commit but can be navigated through the mockup.
